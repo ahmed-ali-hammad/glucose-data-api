@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.main import DatabaseManager
 from src.db.repository import DatabaseRepository
-from src.domain.service import ActionService
+from src.domain.service import GlucoseDataService
 
 
 def get_database_repository(
@@ -26,16 +26,16 @@ def get_database_repository(
     return DatabaseRepository(session)
 
 
-def get_action_service(
+def get_glucose_data_service(
     database_repository: DatabaseRepository = Depends(get_database_repository),
-) -> ActionService:
+) -> GlucoseDataService:
     """
-    Creates and returns an instance of ActionService with the provided storage.
+    Creates and returns an instance of GlucoseDataService with the provided storage.
 
     Args:
         storage (DatabaseRepository): The repository instance used for data storage and retrieval.
 
     Returns:
-        ActionService: A configured ActionService instance ready for use.
+        GlucoseDataService: A configured GlucoseDataService instance ready for use.
     """
-    return ActionService(database_repository=database_repository)
+    return GlucoseDataService(database_repository=database_repository)

@@ -1,20 +1,22 @@
-import csv
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
-from io import StringIO
 from typing import List, Optional, Sequence
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.main import DatabaseManager, check_db_connection
-from src.db.models import UserGlucoseData
 from src.domain.exceptions import WrongFileFormatException
-from src.domain.service import ActionService
-from src.webapp.dependencies import get_action_service
-from src.webapp.schema import GlucoseLevelResponse, RecordCSV, SortOrder, StatusResponse
+from src.domain.service import GlucoseDataService
+from src.webapp.dependencies import get_glucose_data_service
+from src.webapp.schema import (
+    GlucoseLevelResponse,
+    GlucoseRecordCSV,
+    SortOrder,
+    StatusResponse,
+)
 from src.webapp.settings import Settings
 
 _logger = logging.getLogger(__name__)
@@ -49,14 +51,15 @@ async def life_span(app: FastAPI):
 
 
 app = FastAPI(
-    title="Service API",
+    title="Glucose Data API",
+    description="An API for uploading, storing, and retrieving glucose level records.",
     version="1.0.0",
     lifespan=life_span,
 )
 
 
 @app.get(
-    "/health",
+    "/api/v1/health",
     status_code=status.HTTP_200_OK,
     responses={500: {"description": "Internal server error"}},
 )
@@ -84,40 +87,37 @@ async def health_check(
 
 
 @app.post(
-    "/api/upload-csv/",
+    "/api/v1/upload-csv/",
     status_code=status.HTTP_200_OK,
     responses={
         400: {"description": "Wrong File format"},
         500: {"description": "Internal server error"},
     },
 )
-async def upload_csv(
-    action_service: ActionService = Depends(get_action_service),
+async def ingest_glucose_csv(
+    glucose_data_service: GlucoseDataService = Depends(get_glucose_data_service),
     file: UploadFile = File(...),
 ) -> StatusResponse:
     """
-    Endpoint for uploading and processing a CSV file containing glucose data.
-
+    An endpoint for uploading a CSV file containing a user glucose data.
 
     Args:
         file (UploadFile): The uploaded CSV file.
 
     Returns:
-        StatusResponse: A response indicating the success of the upload.
-
-    Raises:
-        HTTPException:
-            - 400 if the file is not in CSV format.
-            - 500 if there is an internal server error.
-            - 422 if the CSV data is invalid.
+        - HTTP 200: Indicating the success of the upload.
+        - HTTP 400: If the file is not in a CSV format.
+        - HTTP 422: If the CSV data is invalid.
+        - HTTP 500: If something goes wrong.
     """
+    # First step: Check and extract data from CSV file.
     try:
-        user_id, csv_reader = await action_service.process_csv_file(file)
+        user_id, csv_reader = await glucose_data_service.process_csv_file(file)
     except WrongFileFormatException:
         raise HTTPException(status_code=400, detail="Only CSV files are allowed")
     except Exception as ex:
         _logger.error(
-            f"Error while saving records. Exception: {ex}",
+            f"Error while extracting records from CSV. Exception: {ex}",
             exc_info=True,
         )
         raise HTTPException(
@@ -125,27 +125,45 @@ async def upload_csv(
             detail="Something went wrong",
         )
 
-    # Validate and process rows
-    records: List[RecordCSV] = []
-    for row in csv_reader:
-        try:
-            records.append(RecordCSV(**row))
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid CSV data: {str(e)}")
+    # Second step: Validate and process rows
+    try:
+        records: List[GlucoseRecordCSV] = []
+        for row in csv_reader:
+            try:
+                records.append(GlucoseRecordCSV(**row))
+            except Exception as e:
+                raise HTTPException(
+                    status_code=422, detail=f"Invalid CSV data: {str(e)}"
+                )
 
-    await action_service.save_to_database(records=records, user_id=user_id)
+        await glucose_data_service.store_glucose_records(
+            records=records, user_id=user_id
+        )
+        return StatusResponse(status=f"Successfully processed {len(records)} recordes")
 
-    return StatusResponse(status=f"Successfully processed {len(records)} recordes")
+    except HTTPException:
+        raise  # Re-raise existing HTTP exceptions
+
+    except Exception as ex:
+        _logger.error(
+            f"Error while validating or saving records. Exception: {ex}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Something went wrong",
+        )
 
 
 @app.get(
     "/api/v1/levels/",
+    status_code=status.HTTP_200_OK,
     responses={
         500: {"description": "Internal server error"},
     },
 )
 async def get_glucose_levels(
-    action_service: ActionService = Depends(get_action_service),
+    glucose_data_service: GlucoseDataService = Depends(get_glucose_data_service),
     user_id: str = Query(..., description="User ID"),
     start: Optional[datetime] = Query(None, description="Start timestamp (ISO format)"),
     end: Optional[datetime] = Query(None, description="End timestamp (ISO format)"),
@@ -166,14 +184,11 @@ async def get_glucose_levels(
         sort (SortOrder): Sorting order for the results (`asc` or `desc`).
 
     Returns:
-        Sequence[GlucoseLevelResponse]: A list of glucose level records for the user.
-
-    Raises:
-        HTTPException:
-            - 500 if there is an internal server error.
+        - HTTP 200: A list of glucose level records for the user.
+        - HTTP 500: If something goes wrong.
     """
     try:
-        levels = await action_service.get_user_glucose_data(
+        levels = await glucose_data_service.get_user_glucose_data(
             user_id=user_id,
             start=start,
             end=end,
@@ -184,7 +199,7 @@ async def get_glucose_levels(
         return levels
     except Exception as ex:
         _logger.error(
-            f"Error while retrieving glucose records. Exception: {ex}",
+            f"Failed to retrieve glucose records for user_id= {user_id}. Exception: {ex}",
             exc_info=True,
         )
         raise HTTPException(
@@ -195,6 +210,7 @@ async def get_glucose_levels(
 
 @app.get(
     "/api/v1/levels/{id}/",
+    status_code=status.HTTP_200_OK,
     responses={
         404: {"description": "ID doesn't exist"},
         500: {"description": "Internal server error"},
@@ -202,7 +218,7 @@ async def get_glucose_levels(
 )
 async def get_glucose_level_by_id(
     id: int,
-    action_service: ActionService = Depends(get_action_service),
+    glucose_data_service: GlucoseDataService = Depends(get_glucose_data_service),
 ) -> GlucoseLevelResponse:
     """
     Endpoint for retrieving a specific glucose level record by its ID.
@@ -214,15 +230,15 @@ async def get_glucose_level_by_id(
         GlucoseLevelResponse: The glucose level record corresponding to the provided ID.
 
     Raises:
-        HTTPException:
-            - 404 if the glucose level with the specified ID doesn't exist.
-            - 500 if there is an internal server error.
+        - HTTP 200: A glucose level record identified by the ID.
+        - HTTP 404: if the glucose level with the specified ID doesn't exist.
+        - HTTP 500: If something goes wrong.
     """
     try:
-        glucose_level = await action_service.get_glucose_level_by_id(id=id)
+        glucose_level = await glucose_data_service.get_glucose_level_by_id(id=id)
     except Exception as ex:
         _logger.error(
-            f"Error while retrieving glucose_level id: {id}. Exception: {ex}",
+            f"Failed to retrieve glucose level record with ID={id}. Exception: {ex}",
             exc_info=True,
         )
         raise HTTPException(
@@ -233,6 +249,6 @@ async def get_glucose_level_by_id(
     if glucose_level is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Glucose level with ID {id} not found.",
+            detail=f"Glucose level with ID={id} not found.",
         )
     return GlucoseLevelResponse.model_validate(glucose_level)

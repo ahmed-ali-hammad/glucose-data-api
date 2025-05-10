@@ -2,5 +2,5 @@ import pytest
 
 
 @pytest.mark.asyncio
-class TestActionService:
+class TestGlucoseDataService:
     pass

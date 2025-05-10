@@ -5,11 +5,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class StatusResponse(BaseModel):
-    status: str
-
-
-class RecordCSV(BaseModel):
+class GlucoseRecordCSV(BaseModel):
     Gerät: str
     Seriennummer: str
     Gerätezeitstempel: datetime
@@ -46,6 +42,10 @@ class RecordCSV(BaseModel):
 class SortOrder(str, Enum):
     asc = "asc"
     desc = "desc"
+
+
+class StatusResponse(BaseModel):
+    status: str
 
 
 class GlucoseLevelResponse(BaseModel):
