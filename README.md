@@ -1,4 +1,4 @@
-<h3 align="center">glucose-data-api</h3>
+<h3 align="center">"Glucose Data API"</h3>
 
 <div align="center">
   <img src="https://img.shields.io/badge/status-active-success.svg" />
@@ -17,7 +17,7 @@
 - [Built Using](#built-using)
 
 ## 🧐 About <a name = "about"></a>
-WIP
+This project is a backend API service for managing user glucose data. It allows uploading and storing data from CSV files containing glucose readings per user, identified by filename. The service provides endpoints to retrieve glucose levels for a specific user, with optional filtering by time range, pagination, and sorting. It also supports fetching individual glucose records by ID.
 
 
 ## 🏁 Getting Started <a name = "getting_started"></a>
@@ -60,7 +60,7 @@ $ python cli.py run-webapp
 
 Endpoints:
 - [API Docs](http://localhost:7091/docs)
-- [Healthcheck](http://localhost:7091/health)
+- [Healthcheck](http://localhost:7091/api/v1/health)
 
 ### 🧪 Running the tests <a name = "tests"></a>
 - [pytest](https://docs.pytest.org/) is used to run unit and integration tests.

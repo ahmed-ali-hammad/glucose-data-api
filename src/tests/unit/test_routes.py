@@ -43,7 +43,7 @@ class TestRoutes:
             "src.webapp.main.check_db_connection",
             return_value=True,
         )
-        response = client.get("/health")
+        response = client.get("/api/v1/health")
 
         mock_check_db_connection.assert_called_once()
         assert response.status_code == 200
@@ -54,7 +54,7 @@ class TestRoutes:
             "src.webapp.main.check_db_connection",
             return_value=False,
         )
-        response = client.get("/health")
+        response = client.get("/api/v1/health")
 
         mock_check_db_connection.assert_called_once()
         assert response.status_code == 500
